@@ -74,3 +74,7 @@ proptest = { version = "1.4", optional = true }
 
 # Pin miden-crypto to match what miden-vm v0.21.1 requires
 miden-crypto = { version = "=0.22.3", default-features = false }
+
+[[example]]
+name = "compile-masm"
+required-features = ["std"]
