@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, num::NonZeroU32, sync::Arc};
+use std::{collections::{BTreeMap, VecDeque}, num::NonZeroU32, sync::Arc};
 
 use miden_assembly::SourceManager;
 use miden_core::Word;
@@ -18,6 +18,7 @@ pub struct DebuggerHost<S: SourceManager + ?Sized> {
     tracing_callbacks: BTreeMap<u32, Vec<Box<TraceHandler>>>,
     on_assert_failed: Option<Box<TraceHandler>>,
     source_manager: Arc<S>,
+    event_replay: VecDeque<Vec<AdviceMutation>>,
 }
 impl<S> DebuggerHost<S>
 where
@@ -30,7 +31,17 @@ where
             tracing_callbacks: Default::default(),
             on_assert_failed: None,
             source_manager,
+            event_replay: VecDeque::new(),
         }
+    }
+
+    /// Set the event replay queue.
+    ///
+    /// When non-empty, `on_event()` will pop mutations from this queue instead of
+    /// returning empty results. This is used for transaction debugging where events
+    /// were recorded during a prior execution.
+    pub fn set_event_replay(&mut self, events: VecDeque<Vec<AdviceMutation>>) {
+        self.event_replay = events;
     }
 
     /// Register a trace handler for `event`
@@ -90,7 +101,12 @@ where
         &mut self,
         _process: &ProcessorState<'_>,
     ) -> impl FutureMaybeSend<Result<Vec<AdviceMutation>, EventError>> {
-        std::future::ready(Ok(Vec::new()))
+        let mutations = if !self.event_replay.is_empty() {
+            self.event_replay.pop_front().unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        std::future::ready(Ok(mutations))
     }
 
     fn on_trace(&mut self, process: &ProcessorState<'_>, trace_id: u32) -> Result<(), TraceError> {

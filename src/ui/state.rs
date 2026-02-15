@@ -1,10 +1,11 @@
-use std::sync::Arc;
+use std::{collections::VecDeque, sync::Arc};
 
 use miden_assembly::{DefaultSourceManager, SourceManager};
 use miden_assembly_syntax::diagnostics::{IntoDiagnostic, Report};
 use miden_core::field::{PrimeCharacteristicRing, PrimeField64};
+use miden_core::program::Program;
 use miden_core::serde::Deserializable;
-use miden_processor::{Felt, StackInputs};
+use miden_processor::{Felt, StackInputs, advice::{AdviceInputs, AdviceMutation}, mast::MastForest};
 
 use crate::{
     config::DebuggerConfig,
@@ -13,8 +14,17 @@ use crate::{
     input::InputFile,
 };
 
+/// Whether the debugger is debugging a plain program or a transaction.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum DebugMode {
+    /// Debugging a plain MASM program loaded from a package.
+    Program,
+    /// Debugging a Miden transaction with pre-recorded event replay.
+    Transaction,
+}
+
 pub struct State {
-    pub package: Arc<miden_mast_package::Package>,
+    pub package: Option<Arc<miden_mast_package::Package>>,
     pub source_manager: Arc<dyn SourceManager>,
     pub config: Box<DebuggerConfig>,
     pub executor: DebugExecutor,
@@ -25,6 +35,7 @@ pub struct State {
     pub breakpoints_hit: Vec<Breakpoint>,
     pub next_breakpoint_id: u8,
     pub stopped: bool,
+    pub debug_mode: DebugMode,
 }
 
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq)]
@@ -88,7 +99,7 @@ impl State {
         let execution_trace = trace_executor.capture_trace(&program, source_manager.clone());
 
         Ok(Self {
-            package,
+            package: Some(package),
             source_manager,
             config,
             executor,
@@ -99,10 +110,69 @@ impl State {
             breakpoints_hit: vec![],
             next_breakpoint_id: 0,
             stopped: true,
+            debug_mode: DebugMode::Program,
+        })
+    }
+
+    /// Create a new debugger state for transaction debugging.
+    ///
+    /// This uses pre-recorded event mutations to replay host events during
+    /// step-by-step debugging, since the debugger's host doesn't have access
+    /// to the real transaction host.
+    pub fn new_for_transaction(
+        program: Arc<Program>,
+        stack_inputs: StackInputs,
+        advice_inputs: AdviceInputs,
+        source_manager: Arc<dyn SourceManager>,
+        mast_forests: Vec<Arc<MastForest>>,
+        event_replay: Vec<Vec<AdviceMutation>>,
+    ) -> Result<Self, Report> {
+        let args = stack_inputs.iter().copied().rev().collect::<Vec<_>>();
+
+        // Create debug executor with event replay
+        let mut executor = Executor::new(args.clone());
+        executor.with_advice_inputs(advice_inputs.clone());
+        let debug_executor = executor.into_debug_with_replay(
+            &program,
+            source_manager.clone(),
+            mast_forests.clone(),
+            VecDeque::from(event_replay.clone()),
+        );
+
+        // Create trace executor with a cloned replay queue
+        let mut trace_executor = Executor::new(args);
+        trace_executor.with_advice_inputs(advice_inputs);
+        let trace_debug = trace_executor.into_debug_with_replay(
+            &program,
+            source_manager.clone(),
+            mast_forests,
+            VecDeque::from(event_replay),
+        );
+
+        // Run trace executor to completion to capture execution trace
+        let execution_trace = run_to_trace(trace_debug);
+
+        Ok(Self {
+            package: None,
+            source_manager,
+            config: Box::new(DebuggerConfig::default()),
+            executor: debug_executor,
+            execution_trace,
+            execution_failed: None,
+            input_mode: InputMode::Normal,
+            breakpoints: vec![],
+            breakpoints_hit: vec![],
+            next_breakpoint_id: 0,
+            stopped: true,
+            debug_mode: DebugMode::Transaction,
         })
     }
 
     pub fn reload(&mut self) -> Result<(), Report> {
+        if self.debug_mode == DebugMode::Transaction {
+            return Err(Report::msg("reload is not supported in transaction debug mode"));
+        }
+
         log::debug!("reloading program");
         let package = load_package(&self.config)?;
 
@@ -153,7 +223,7 @@ impl State {
         trace_executor.with_advice_inputs(core::mem::take(&mut inputs.advice_inputs));
         let execution_trace = trace_executor.capture_trace(&program, self.source_manager.clone());
 
-        self.package = package;
+        self.package = Some(package);
         self.executor = executor;
         self.execution_trace = execution_trace;
         self.execution_failed = None;
@@ -368,6 +438,20 @@ fn load_sysroot_libs(
     }
 
     Ok(libs)
+}
+
+/// Run a [DebugExecutor] to completion and return the [ExecutionTrace].
+fn run_to_trace(mut executor: DebugExecutor) -> ExecutionTrace {
+    loop {
+        if executor.stopped {
+            break;
+        }
+        match executor.step() {
+            Ok(_) => continue,
+            Err(_) => break,
+        }
+    }
+    executor.into_execution_trace()
 }
 
 fn load_package(config: &DebuggerConfig) -> Result<Arc<miden_mast_package::Package>, Report> {

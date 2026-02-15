@@ -162,6 +162,7 @@ impl Page for Home {
             }
             Action::Continue => {
                 let start_cycle = state.executor.cycle;
+                let start_asmop = state.executor.current_asmop.clone();
                 let mut breakpoints = core::mem::take(&mut state.breakpoints);
                 state.stopped = false;
                 let stopped = loop {
@@ -231,6 +232,7 @@ impl Page for Home {
                         if cycles_stepped > 0
                             && is_op_boundary
                             && matches!(&bp.ty, BreakpointType::Next)
+                            && state.executor.current_asmop != start_asmop
                         {
                             state.breakpoints_hit.push(core::mem::take(bp));
                             return false;
