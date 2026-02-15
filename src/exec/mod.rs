@@ -1,4 +1,5 @@
 mod config;
+mod diagnostic;
 mod executor;
 mod host;
 mod state;
@@ -7,6 +8,7 @@ mod trace_event;
 
 pub use self::{
     config::ExecutionConfig,
+    diagnostic::{DiagnosticExecutor, DiagnosticExecutorFactory},
     executor::Executor,
     host::DebuggerHost,
     state::DebugExecutor,
