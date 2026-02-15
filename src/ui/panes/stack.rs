@@ -78,7 +78,7 @@ impl Pane for OperandStackPane {
             .block(Block::default().borders(Borders::ALL))
             .highlight_symbol(symbols::scrollbar::HORIZONTAL.end)
             .highlight_spacing(HighlightSpacing::Always)
-            .highlight_style(Style::default().add_modifier(Modifier::BOLD));
+            .highlight_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD));
         let mut list_state = ListState::default().with_selected(Some(selected_line));
 
         frame.render_stateful_widget(list, area, &mut list_state);
