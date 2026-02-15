@@ -69,7 +69,7 @@ impl Pane for StackTracePane {
                 Span::styled(" |-> ", Color::Gray)
             };
             */
-            let gutter = Span::styled(" ", Color::White);
+            let gutter = Span::styled(" ", Color::Gray);
             parts.push(gutter);
             let name = frame.procedure("");
             let name = name.as_deref().unwrap_or("<unknown>").to_string();

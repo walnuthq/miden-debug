@@ -67,7 +67,7 @@ impl Pane for OperandStackPane {
                 .iter()
                 .rev()
                 .map(|item| {
-                    Line::from(Span::styled(format!(" {}", item.as_canonical_u64()), Color::White))
+                    Line::from(Span::styled(format!(" {}", item.as_canonical_u64()), Color::Gray))
                 })
                 .collect()
         };

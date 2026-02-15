@@ -66,7 +66,7 @@ impl Pane for DisassemblyPane {
                         .executor
                         .recent
                         .iter()
-                        .map(|op| Line::from(vec![Span::styled(format!(" | {op}"), Color::White)]))
+                        .map(|op| Line::from(vec![Span::styled(format!(" | {op}"), Color::Gray)]))
                         .collect::<Vec<_>>(),
                 )
             }
@@ -84,7 +84,7 @@ impl Pane for DisassemblyPane {
                         .map(|op| {
                             Line::from(vec![Span::styled(
                                 format!(" | {}", &op.display()),
-                                Color::White,
+                                Color::Gray,
                             )])
                         })
                         .collect::<Vec<_>>(),
