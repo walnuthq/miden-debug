@@ -1,4 +1,6 @@
 mod config;
+#[cfg(feature = "dap")]
+mod dap;
 mod diagnostic;
 mod executor;
 mod host;
@@ -15,3 +17,6 @@ pub use self::{
     trace::{ExecutionTrace, TraceHandler},
     trace_event::TraceEvent,
 };
+
+#[cfg(feature = "dap")]
+pub use self::dap::{DapConfig, DapExecutor, DapExecutorFactory};
