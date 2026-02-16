@@ -21,6 +21,9 @@ pub enum DebugMode {
     Program,
     /// Debugging a Miden transaction with pre-recorded event replay.
     Transaction,
+    /// Debugging remotely via a DAP server connection.
+    #[cfg(feature = "dap")]
+    RemoteDap,
 }
 
 pub struct State {
@@ -36,6 +39,8 @@ pub struct State {
     pub next_breakpoint_id: u8,
     pub stopped: bool,
     pub debug_mode: DebugMode,
+    #[cfg(feature = "dap")]
+    pub dap_client: Option<crate::exec::DapClient>,
 }
 
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq)]
@@ -111,6 +116,8 @@ impl State {
             next_breakpoint_id: 0,
             stopped: true,
             debug_mode: DebugMode::Program,
+            #[cfg(feature = "dap")]
+            dap_client: None,
         })
     }
 
@@ -165,12 +172,18 @@ impl State {
             next_breakpoint_id: 0,
             stopped: true,
             debug_mode: DebugMode::Transaction,
+            #[cfg(feature = "dap")]
+            dap_client: None,
         })
     }
 
     pub fn reload(&mut self) -> Result<(), Report> {
         if self.debug_mode == DebugMode::Transaction {
             return Err(Report::msg("reload is not supported in transaction debug mode"));
+        }
+        #[cfg(feature = "dap")]
+        if self.debug_mode == DebugMode::RemoteDap {
+            return Err(Report::msg("reload is not supported in DAP remote debug mode"));
         }
 
         log::debug!("reloading program");
@@ -294,6 +307,11 @@ impl State {
 
         use crate::debug::FormatType;
 
+        #[cfg(feature = "dap")]
+        if self.debug_mode == DebugMode::RemoteDap {
+            return Err("memory reads are not supported in DAP remote debug mode".into());
+        }
+
         let cycle = miden_processor::trace::RowIndex::from(self.executor.cycle);
         let context = self.executor.current_context;
         let mut output = String::new();
@@ -379,6 +397,159 @@ impl State {
 
         Ok(output)
     }
+}
+
+// DAP CLIENT MODE
+// ================================================================================================
+
+#[cfg(feature = "dap")]
+impl State {
+    /// Create a new debugger state for remote DAP debugging.
+    ///
+    /// Connects to a DAP server, performs the handshake, and queries the
+    /// initial state to populate the executor fields that the TUI panes read.
+    pub fn new_for_dap(addr: &str) -> Result<Self, Report> {
+        use std::collections::BTreeSet;
+
+        use miden_processor::{ContextId, FastProcessor};
+
+        use crate::debug::{CallFrame, CallStack};
+        use crate::exec::{DebuggerHost, SCOPE_STACK};
+
+        let source_manager: Arc<dyn SourceManager> = Arc::new(DefaultSourceManager::default());
+
+        let mut client = crate::exec::DapClient::connect(addr)
+            .map_err(|e| Report::msg(e))?;
+        client.handshake().map_err(|e| Report::msg(e))?;
+
+        // Query initial state from DAP server
+        let stack_frames = client.stack_trace().map_err(|e| Report::msg(e))?;
+        let stack_vars = client.variables(SCOPE_STACK).map_err(|e| Report::msg(e))?;
+
+        // Build call frames from DAP StackTrace response
+        let call_frames: Vec<CallFrame> = stack_frames.iter().map(|f| {
+            let resolved = resolve_dap_frame(f, &source_manager);
+            CallFrame::from_remote(Some(f.name.clone()), resolved)
+        }).collect();
+
+        // Build current_stack from Variables response
+        let current_stack: Vec<Felt> = stack_vars.iter()
+            .map(|v| Felt::new(v.value.parse::<u64>().unwrap_or(0)))
+            .collect();
+
+        // Query cycle from Evaluate
+        let mut cycle = 0usize;
+        if let Ok(state_json) = client.evaluate("__miden_state") {
+            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&state_json) {
+                cycle = parsed.get("cycle")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0) as usize;
+            }
+        }
+
+        // Build a dummy DebugExecutor — the processor/host are defaults and never stepped.
+        // Only the public "view" fields matter for the TUI panes.
+        let processor = FastProcessor::new(StackInputs::default());
+        let host = DebuggerHost::new(source_manager.clone());
+        let callstack = CallStack::from_remote_frames(call_frames);
+
+        let executor = DebugExecutor {
+            processor,
+            host,
+            resume_ctx: None,
+            current_stack,
+            current_op: None,
+            current_asmop: None,
+            stack_outputs: Default::default(),
+            contexts: BTreeSet::new(),
+            root_context: ContextId::root(),
+            current_context: ContextId::root(),
+            callstack,
+            recent: VecDeque::new(),
+            cycle,
+            stopped: false,
+        };
+
+        Ok(Self {
+            package: None,
+            source_manager,
+            config: Box::new(DebuggerConfig::default()),
+            executor,
+            execution_trace: ExecutionTrace::empty(),
+            execution_failed: None,
+            input_mode: InputMode::Normal,
+            breakpoints: vec![],
+            breakpoints_hit: vec![],
+            next_breakpoint_id: 0,
+            stopped: true,
+            debug_mode: DebugMode::RemoteDap,
+            dap_client: Some(client),
+        })
+    }
+
+    /// Refresh the executor state from the DAP server after a step command.
+    pub fn refresh_from_dap(&mut self) -> Result<(), Report> {
+        use crate::debug::{CallFrame, CallStack};
+        use crate::exec::SCOPE_STACK;
+
+        let client = self.dap_client.as_mut()
+            .ok_or_else(|| Report::msg("no DAP client"))?;
+
+        // Update stack
+        let vars = client.variables(SCOPE_STACK).map_err(|e| Report::msg(e))?;
+        self.executor.current_stack = vars.iter()
+            .map(|v| Felt::new(v.value.parse::<u64>().unwrap_or(0)))
+            .collect();
+
+        // Update call stack from StackTrace response
+        let frames = client.stack_trace().map_err(|e| Report::msg(e))?;
+        let call_frames: Vec<CallFrame> = frames.iter().map(|f| {
+            let resolved = resolve_dap_frame(f, &self.source_manager);
+            CallFrame::from_remote(Some(f.name.clone()), resolved)
+        }).collect();
+        self.executor.callstack = CallStack::from_remote_frames(call_frames);
+
+        // Update cycle from Evaluate
+        if let Ok(state_json) = client.evaluate("__miden_state") {
+            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&state_json) {
+                if let Some(c) = parsed.get("cycle").and_then(|v| v.as_u64()) {
+                    self.executor.cycle = c as usize;
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
+/// Resolve a DAP StackFrame to a [ResolvedLocation] by loading the source file from disk.
+#[cfg(feature = "dap")]
+fn resolve_dap_frame(
+    frame: &dap::types::StackFrame,
+    source_manager: &Arc<dyn SourceManager>,
+) -> Option<crate::debug::ResolvedLocation> {
+    use std::path::Path;
+
+    use miden_debug_types::{SourceManagerExt, SourceSpan};
+
+    let path_str = frame.source.as_ref()?.path.as_ref()?;
+    let path = Path::new(path_str);
+    let source_file = source_manager.load_file(path).ok()?;
+    let line = frame.line.max(1) as u32;
+    let col = frame.column.max(1) as u32;
+
+    // Compute a span from the line number — use the byte range of the line
+    let content = source_file.content();
+    let line_index = miden_debug_types::LineIndex::from(line.saturating_sub(1));
+    let range = content.line_range(line_index)?;
+    let span = SourceSpan::new(source_file.id(), range);
+
+    Some(crate::debug::ResolvedLocation {
+        source_file,
+        line,
+        col,
+        span,
+    })
 }
 
 /// Attempts to load the standard library from the sysroot/toolchain directory.

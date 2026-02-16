@@ -599,6 +599,30 @@ impl DapExecutor {
                     server.respond(resp).ok();
                 }
 
+                // --- Evaluate (custom state query) ---
+                Command::Evaluate(ref args) if args.expression == "__miden_state" => {
+                    let state_json = serde_json::json!({
+                        "cycle": cycle,
+                        "stopped": resume_ctx.is_none(),
+                    });
+                    let resp = req.success(ResponseBody::Evaluate(
+                        responses::EvaluateResponse {
+                            result: state_json.to_string(),
+                            type_field: Some("json".into()),
+                            presentation_hint: None,
+                            variables_reference: 0,
+                            named_variables: None,
+                            indexed_variables: None,
+                            memory_reference: None,
+                        },
+                    ));
+                    server.respond(resp).ok();
+                }
+
+                Command::Evaluate(ref _args) => {
+                    server.respond(req.error("Unsupported expression")).ok();
+                }
+
                 // --- Unhandled ---
                 _ => {
                     server.respond(req.error("Unsupported command")).ok();

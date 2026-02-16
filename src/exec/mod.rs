@@ -1,6 +1,8 @@
 mod config;
 #[cfg(feature = "dap")]
 mod dap;
+#[cfg(feature = "dap")]
+mod dap_client;
 mod diagnostic;
 mod executor;
 mod host;
@@ -20,3 +22,5 @@ pub use self::{
 
 #[cfg(feature = "dap")]
 pub use self::dap::{DapConfig, DapExecutor, DapExecutorFactory};
+#[cfg(feature = "dap")]
+pub use self::dap_client::{DapClient, DapStopReason, SCOPE_MEMORY, SCOPE_STACK};

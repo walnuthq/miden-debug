@@ -1338,6 +1338,7 @@ dependencies = [
  "ratatui",
  "rustc-demangle",
  "serde",
+ "serde_json",
  "signal-hook",
  "smallvec",
  "syntect",
