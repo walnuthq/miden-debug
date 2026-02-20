@@ -17,13 +17,13 @@ pub struct DebuggerConfig {
     ///
     /// You may use `-` as a file name to read a file from stdin.
     #[cfg_attr(all(feature = "tui", feature = "dap"), arg(
-        required = false,
         value_name = "FILE"
     ))]
     #[cfg_attr(all(feature = "tui", not(feature = "dap")), arg(
+        required = true,
         value_name = "FILE"
     ))]
-    pub input: InputFile,
+    pub input: Option<InputFile>,
     /// Specify the path to a file containing program inputs.
     ///
     /// Program inputs are stack and advice provider values which the program can

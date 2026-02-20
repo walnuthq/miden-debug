@@ -166,7 +166,6 @@ impl DapClient {
         self.seq += 1;
         let msg = serde_json::json!({
             "seq": self.seq,
-            "type": "request",
             "command": command,
             "arguments": arguments,
         });

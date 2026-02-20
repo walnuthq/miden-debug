@@ -626,8 +626,9 @@ fn run_to_trace(mut executor: DebugExecutor) -> ExecutionTrace {
 }
 
 fn load_package(config: &DebuggerConfig) -> Result<Arc<miden_mast_package::Package>, Report> {
-    let package = match config.input {
-        InputFile::Real(ref path) => {
+    let input = config.input.as_ref().ok_or_else(|| Report::msg("no input file specified"))?;
+    let package = match input {
+        InputFile::Real(path) => {
             let bytes = std::fs::read(path).into_diagnostic()?;
             miden_mast_package::Package::read_from_bytes(&bytes)
                 .map(Arc::new)
@@ -638,7 +639,7 @@ fn load_package(config: &DebuggerConfig) -> Result<Arc<miden_mast_package::Packa
                     ))
                 })?
         }
-        InputFile::Stdin(ref bytes) => miden_mast_package::Package::read_from_bytes(bytes)
+        InputFile::Stdin(bytes) => miden_mast_package::Package::read_from_bytes(bytes)
             .map(Arc::new)
             .map_err(|e| Report::msg(format!("failed to load Miden package from stdin: {e}")))?,
     };

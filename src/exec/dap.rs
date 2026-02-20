@@ -283,7 +283,7 @@ impl DapExecutor {
                 Ok(Some(req)) => req,
                 Ok(None) => break,
                 Err(e) => {
-                    eprintln!("DAP protocol error: {e}");
+                    eprintln!("DAP protocol error: {e:#?}");
                     break;
                 }
             };
