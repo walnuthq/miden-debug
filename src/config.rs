@@ -16,8 +16,11 @@ pub struct DebuggerConfig {
     /// Miden Assembly programs are emitted by the compiler with a `.masp` extension.
     ///
     /// You may use `-` as a file name to read a file from stdin.
-    #[cfg_attr(feature = "tui", arg(
-        required_unless_present = "dap_connect",
+    #[cfg_attr(all(feature = "tui", feature = "dap"), arg(
+        required = false,
+        value_name = "FILE"
+    ))]
+    #[cfg_attr(all(feature = "tui", not(feature = "dap")), arg(
         value_name = "FILE"
     ))]
     pub input: InputFile,
@@ -174,7 +177,7 @@ impl ColorChoice {
         }
     }
 
-    #[cfg(all(feature = "tui", not(windows)))]
+    #[cfg(all(feature = "std", not(windows)))]
     pub fn env_allows_color(&self) -> bool {
         match std::env::var_os("TERM") {
             // If TERM isn't set, then we are in a weird environment that
@@ -194,7 +197,7 @@ impl ColorChoice {
         true
     }
 
-    #[cfg(all(feature = "tui", windows))]
+    #[cfg(all(feature = "std", windows))]
     pub fn env_allows_color(&self) -> bool {
         // On Windows, if TERM isn't set, then we shouldn't automatically
         // assume that colors aren't allowed. This is unlike Unix environments
