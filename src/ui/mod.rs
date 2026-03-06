@@ -9,8 +9,8 @@ mod tui;
 
 use miden_assembly_syntax::diagnostics::{IntoDiagnostic, Report};
 
-use self::{action::Action, app::App};
 pub use self::state::{DebugMode, State};
+use self::{action::Action, app::App};
 use crate::config::DebuggerConfig;
 
 pub fn run(config: Box<DebuggerConfig>, logger: Box<dyn log::Log>) -> Result<(), Report> {
@@ -50,10 +50,7 @@ pub async fn start_ui(
     Ok(())
 }
 
-async fn start_ui_with_state(
-    state: State,
-    logger: Box<dyn log::Log>,
-) -> Result<(), Report> {
+async fn start_ui_with_state(state: State, logger: Box<dyn log::Log>) -> Result<(), Report> {
     use ratatui::crossterm as term;
 
     crate::logger::DebugLogger::install(logger);

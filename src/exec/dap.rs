@@ -4,21 +4,19 @@ use std::sync::{Arc, OnceLock};
 
 use dap::prelude::*;
 use miden_core::Word;
-use miden_core::field::PrimeField64;
 use miden_core::operations::{AssemblyOp, DebugOptions};
 use miden_core::precompile::PrecompileTranscript;
 use miden_core::program::Program;
 use miden_processor::{
-    ExecutionError, ExecutionOptions, FastProcessor, FutureMaybeSend, Host, ProgramExecutor,
-    ProgramExecutorFactory, ProcessorState, ResumeContext, StackInputs, StackOutputs, TraceError,
+    ExecutionError, ExecutionOptions, ExecutionOutput, FastProcessor, FutureMaybeSend, Host,
+    ProcessorState, ResumeContext, StackInputs, StackOutputs, TraceError,
     advice::{AdviceInputs, AdviceMutation},
     event::EventError,
-    fast::ExecutionOutput,
     mast::MastForest,
 };
 
-use super::TraceEvent;
 use super::state::extract_current_op;
+use super::{ProgramExecutor, ProgramExecutorFactory, TraceEvent};
 
 // DAP CONFIG
 // ================================================================================================
@@ -72,17 +70,11 @@ impl<H: Host> Host for DapHostWrapper<'_, H> {
     fn get_label_and_source_file(
         &self,
         location: &miden_debug_types::Location,
-    ) -> (
-        miden_debug_types::SourceSpan,
-        Option<Arc<miden_debug_types::SourceFile>>,
-    ) {
+    ) -> (miden_debug_types::SourceSpan, Option<Arc<miden_debug_types::SourceFile>>) {
         self.inner.get_label_and_source_file(location)
     }
 
-    fn get_mast_forest(
-        &self,
-        node_digest: &Word,
-    ) -> impl FutureMaybeSend<Option<Arc<MastForest>>> {
+    fn get_mast_forest(&self, node_digest: &Word) -> impl FutureMaybeSend<Option<Arc<MastForest>>> {
         self.inner.get_mast_forest(node_digest)
     }
 
@@ -101,11 +93,7 @@ impl<H: Host> Host for DapHostWrapper<'_, H> {
         self.inner.on_debug(process, options)
     }
 
-    fn on_trace(
-        &mut self,
-        process: &ProcessorState<'_>,
-        trace_id: u32,
-    ) -> Result<(), TraceError> {
+    fn on_trace(&mut self, process: &ProcessorState<'_>, trace_id: u32) -> Result<(), TraceError> {
         let event = TraceEvent::from(trace_id);
         match event {
             TraceEvent::FrameStart => self.call_depth += 1,
@@ -239,10 +227,7 @@ impl DapExecutor {
 
         // 4. Bind TCP listener
         let listener = TcpListener::bind(&self.config.listen_addr).unwrap_or_else(|e| {
-            panic!(
-                "DAP server failed to bind to {}: {e}",
-                self.config.listen_addr
-            )
+            panic!("DAP server failed to bind to {}: {e}", self.config.listen_addr)
         });
         eprintln!(
             "DAP server listening on {}. Waiting for client connection...",
@@ -250,15 +235,12 @@ impl DapExecutor {
         );
 
         // 5. Accept one client connection
-        let (stream, addr) = listener
-            .accept()
-            .unwrap_or_else(|e| panic!("DAP server accept failed: {e}"));
+        let (stream, addr) =
+            listener.accept().unwrap_or_else(|e| panic!("DAP server accept failed: {e}"));
         eprintln!("DAP client connected from {addr}");
 
         let reader = BufReader::new(
-            stream
-                .try_clone()
-                .unwrap_or_else(|e| panic!("Failed to clone TCP stream: {e}")),
+            stream.try_clone().unwrap_or_else(|e| panic!("Failed to clone TCP stream: {e}")),
         );
         let writer = BufWriter::new(stream);
 
@@ -332,10 +314,9 @@ impl DapExecutor {
 
                 // --- Execution Control ---
                 Command::Continue(_) => {
-                    let resp =
-                        req.success(ResponseBody::Continue(responses::ContinueResponse {
-                            all_threads_continued: Some(true),
-                        }));
+                    let resp = req.success(ResponseBody::Continue(responses::ContinueResponse {
+                        all_threads_continued: Some(true),
+                    }));
                     server.respond(resp).ok();
 
                     match step_until_breakpoint(
@@ -455,35 +436,30 @@ impl DapExecutor {
 
                 // --- State Inspection ---
                 Command::Threads => {
-                    let resp =
-                        req.success(ResponseBody::Threads(responses::ThreadsResponse {
-                            threads: vec![types::Thread {
-                                id: 1,
-                                name: "main".into(),
-                            }],
-                        }));
+                    let resp = req.success(ResponseBody::Threads(responses::ThreadsResponse {
+                        threads: vec![types::Thread {
+                            id: 1,
+                            name: "main".into(),
+                        }],
+                    }));
                     server.respond(resp).ok();
                 }
 
                 Command::StackTrace(ref _args) => {
                     let mut frames = Vec::new();
 
-                    let (name, source, line) =
-                        if let Some(asmop) = current_asmop.as_ref() {
-                            let loc = resolve_asmop_location(asmop, &wrapper);
-                            let (path, line_num) =
-                                loc.unwrap_or_else(|| ("<unknown>".into(), 0));
-                            let source = types::Source {
-                                name: Some(
-                                    path.rsplit('/').next().unwrap_or(&path).to_string(),
-                                ),
-                                path: Some(path),
-                                ..Default::default()
-                            };
-                            (asmop.context_name().to_string(), Some(source), line_num)
-                        } else {
-                            (format!("cycle {cycle}"), None, 0)
+                    let (name, source, line) = if let Some(asmop) = current_asmop.as_ref() {
+                        let loc = resolve_asmop_location(asmop, &wrapper);
+                        let (path, line_num) = loc.unwrap_or_else(|| ("<unknown>".into(), 0));
+                        let source = types::Source {
+                            name: Some(path.rsplit('/').next().unwrap_or(&path).to_string()),
+                            path: Some(path),
+                            ..Default::default()
                         };
+                        (asmop.context_name().to_string(), Some(source), line_num)
+                    } else {
+                        (format!("cycle {cycle}"), None, 0)
+                    };
 
                     frames.push(types::StackFrame {
                         id: 0,
@@ -494,33 +470,31 @@ impl DapExecutor {
                         ..Default::default()
                     });
 
-                    let resp = req.success(ResponseBody::StackTrace(
-                        responses::StackTraceResponse {
+                    let resp =
+                        req.success(ResponseBody::StackTrace(responses::StackTraceResponse {
                             stack_frames: frames,
                             total_frames: Some(1),
-                        },
-                    ));
+                        }));
                     server.respond(resp).ok();
                 }
 
                 Command::Scopes(ref _args) => {
-                    let resp =
-                        req.success(ResponseBody::Scopes(responses::ScopesResponse {
-                            scopes: vec![
-                                types::Scope {
-                                    name: "Operand Stack".into(),
-                                    variables_reference: SCOPE_STACK,
-                                    expensive: false,
-                                    ..Default::default()
-                                },
-                                types::Scope {
-                                    name: "Memory".into(),
-                                    variables_reference: SCOPE_MEMORY,
-                                    expensive: false,
-                                    ..Default::default()
-                                },
-                            ],
-                        }));
+                    let resp = req.success(ResponseBody::Scopes(responses::ScopesResponse {
+                        scopes: vec![
+                            types::Scope {
+                                name: "Operand Stack".into(),
+                                variables_reference: SCOPE_STACK,
+                                expensive: false,
+                                ..Default::default()
+                            },
+                            types::Scope {
+                                name: "Memory".into(),
+                                variables_reference: SCOPE_MEMORY,
+                                expensive: false,
+                                ..Default::default()
+                            },
+                        ],
+                    }));
                     server.respond(resp).ok();
                 }
 
@@ -561,9 +535,9 @@ impl DapExecutor {
                         _ => Vec::new(),
                     };
 
-                    let resp = req.success(ResponseBody::Variables(
-                        responses::VariablesResponse { variables },
-                    ));
+                    let resp = req.success(ResponseBody::Variables(responses::VariablesResponse {
+                        variables,
+                    }));
                     server.respond(resp).ok();
                 }
 
@@ -605,17 +579,15 @@ impl DapExecutor {
                         "cycle": cycle,
                         "stopped": resume_ctx.is_none(),
                     });
-                    let resp = req.success(ResponseBody::Evaluate(
-                        responses::EvaluateResponse {
-                            result: state_json.to_string(),
-                            type_field: Some("json".into()),
-                            presentation_hint: None,
-                            variables_reference: 0,
-                            named_variables: None,
-                            indexed_variables: None,
-                            memory_reference: None,
-                        },
-                    ));
+                    let resp = req.success(ResponseBody::Evaluate(responses::EvaluateResponse {
+                        result: state_json.to_string(),
+                        type_field: Some("json".into()),
+                        presentation_hint: None,
+                        variables_reference: 0,
+                        named_variables: None,
+                        indexed_variables: None,
+                        memory_reference: None,
+                    }));
                     server.respond(resp).ok();
                 }
 
@@ -635,18 +607,13 @@ impl DapExecutor {
         // Run the program to completion if it hasn't finished
         if let Some(ctx) = resume_ctx {
             let mut ctx = Some(ctx);
-            loop {
-                match ctx.take() {
-                    Some(resume) => {
-                        match poll_immediately(processor.step(&mut wrapper, resume)) {
-                            Ok(Some(new_ctx)) => {
-                                ctx = Some(new_ctx);
-                            }
-                            Ok(None) => break,
-                            Err(e) => return Err(e),
-                        }
+            while let Some(resume) = ctx.take() {
+                match poll_immediately(processor.step(&mut wrapper, resume)) {
+                    Ok(Some(new_ctx)) => {
+                        ctx = Some(new_ctx);
                     }
-                    None => break,
+                    Ok(None) => break,
+                    Err(e) => return Err(e),
                 }
             }
         }
@@ -664,7 +631,7 @@ impl DapExecutor {
         Ok(ExecutionOutput {
             stack,
             advice: Default::default(),
-            memory: processor.memory().clone(),
+            memory: Default::default(),
             final_pc_transcript: PrecompileTranscript::default(),
         })
     }
@@ -724,9 +691,8 @@ fn step_over<H: Host>(
             Ok(Some(new_ctx)) => {
                 *cycle += 1;
                 let (_op, node_id, op_idx) = extract_current_op(&new_ctx);
-                *current_asmop = node_id.and_then(|nid| {
-                    new_ctx.current_forest().get_assembly_op(nid, op_idx).cloned()
-                });
+                *current_asmop = node_id
+                    .and_then(|nid| new_ctx.current_forest().get_assembly_op(nid, op_idx).cloned());
                 *resume_ctx = Some(new_ctx);
 
                 if *current_asmop != original_asmop {
@@ -763,9 +729,8 @@ fn step_out<H: Host>(
             Ok(Some(new_ctx)) => {
                 *cycle += 1;
                 let (_op, node_id, op_idx) = extract_current_op(&new_ctx);
-                *current_asmop = node_id.and_then(|nid| {
-                    new_ctx.current_forest().get_assembly_op(nid, op_idx).cloned()
-                });
+                *current_asmop = node_id
+                    .and_then(|nid| new_ctx.current_forest().get_assembly_op(nid, op_idx).cloned());
                 *resume_ctx = Some(new_ctx);
 
                 if host.call_depth <= target_depth {
@@ -801,22 +766,19 @@ fn step_until_breakpoint<H: Host>(
             Ok(Some(new_ctx)) => {
                 *cycle += 1;
                 let (_op, node_id, op_idx) = extract_current_op(&new_ctx);
-                *current_asmop = node_id.and_then(|nid| {
-                    new_ctx.current_forest().get_assembly_op(nid, op_idx).cloned()
-                });
+                *current_asmop = node_id
+                    .and_then(|nid| new_ctx.current_forest().get_assembly_op(nid, op_idx).cloned());
                 *resume_ctx = Some(new_ctx);
 
                 // Check breakpoints
-                if !breakpoints.is_empty() {
-                    if let Some(asmop) = current_asmop.as_ref() {
-                        if let Some((path, line)) = resolve_asmop_location(asmop, host) {
-                            for bp in breakpoints {
-                                if bp.line == line
-                                    && (path.ends_with(&bp.path) || bp.path.ends_with(&path))
-                                {
-                                    return StepResult::Breakpoint(line);
-                                }
-                            }
+                if !breakpoints.is_empty()
+                    && let Some(asmop) = current_asmop.as_ref()
+                    && let Some((path, line)) = resolve_asmop_location(asmop, host)
+                {
+                    for bp in breakpoints {
+                        if bp.line == line && (path.ends_with(&bp.path) || bp.path.ends_with(&path))
+                        {
+                            return StepResult::Breakpoint(line);
                         }
                     }
                 }

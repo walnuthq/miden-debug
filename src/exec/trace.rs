@@ -1,5 +1,5 @@
 use miden_core::Word;
-use miden_processor::{ContextId, FastProcessor, Felt, StackOutputs, trace::RowIndex};
+use miden_processor::{ContextId, FastProcessor, Felt, StackInputs, StackOutputs, trace::RowIndex};
 use smallvec::SmallVec;
 
 use super::TraceEvent;
@@ -37,7 +37,7 @@ impl ExecutionTrace {
         Self {
             root_context: ContextId::root(),
             last_cycle: RowIndex::from(0u32),
-            memory: Default::default(),
+            processor: FastProcessor::new(StackInputs::default()),
             outputs: StackOutputs::default(),
         }
     }

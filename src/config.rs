@@ -16,13 +16,11 @@ pub struct DebuggerConfig {
     /// Miden Assembly programs are emitted by the compiler with a `.masp` extension.
     ///
     /// You may use `-` as a file name to read a file from stdin.
-    #[cfg_attr(all(feature = "tui", feature = "dap"), arg(
-        value_name = "FILE"
-    ))]
-    #[cfg_attr(all(feature = "tui", not(feature = "dap")), arg(
-        required = true,
-        value_name = "FILE"
-    ))]
+    #[cfg_attr(all(feature = "tui", feature = "dap"), arg(value_name = "FILE"))]
+    #[cfg_attr(
+        all(feature = "tui", not(feature = "dap")),
+        arg(required = true, value_name = "FILE")
+    )]
     pub input: Option<InputFile>,
     /// Specify the path to a file containing program inputs.
     ///
@@ -82,7 +80,10 @@ pub struct DebuggerConfig {
     /// Specify the address of the DAP server (e.g. "127.0.0.1:4711").
     /// When this flag is set, no input file is required.
     #[cfg(feature = "dap")]
-    #[cfg_attr(feature = "tui", arg(long, value_name = "ADDR", help_heading = "Execution"))]
+    #[cfg_attr(
+        feature = "tui",
+        arg(long, value_name = "ADDR", help_heading = "Execution")
+    )]
     pub dap_connect: Option<String>,
     /// Specify one or more search paths for link libraries requested via `-l`
     #[cfg_attr(

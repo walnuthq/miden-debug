@@ -452,7 +452,7 @@ dependencies = [
 
 [[package]]
 name = "dap"
-version = "0.4.1-alpha1"
+version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -1198,7 +1198,7 @@ dependencies = [
  "miden-core",
  "miden-crypto",
  "miden-utils-indexing",
- "thiserror",
+ "thiserror 2.0.17",
  "tracing",
 ]
 
@@ -1254,7 +1254,7 @@ dependencies = [
  "miden-utils-sync",
  "num-derive",
  "num-traits",
- "thiserror",
+ "thiserror 2.0.17",
 ]
 
 [[package]]
@@ -1380,7 +1380,7 @@ dependencies = [
  "paste",
  "rand",
  "serde",
- "thiserror",
+ "thiserror 2.0.17",
 ]
 
 [[package]]
@@ -1402,7 +1402,7 @@ dependencies = [
  "miden-assembly-syntax",
  "miden-core",
  "miden-debug-types",
- "thiserror",
+ "thiserror 2.0.17",
 ]
 
 [[package]]
@@ -1521,7 +1521,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bc42cfa3aef68d21238b3ce4c2db00a1278f8075ef492c23c035ab6c75774790"
 dependencies = [
  "miden-crypto",
- "thiserror",
+ "thiserror 2.0.17",
 ]
 
 [[package]]

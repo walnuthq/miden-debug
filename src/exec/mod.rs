@@ -6,6 +6,7 @@ mod dap_client;
 mod diagnostic;
 mod executor;
 mod host;
+mod program;
 mod state;
 mod trace;
 mod trace_event;
@@ -15,6 +16,7 @@ pub use self::{
     diagnostic::{DiagnosticExecutor, DiagnosticExecutorFactory},
     executor::Executor,
     host::DebuggerHost,
+    program::{ProgramExecutor, ProgramExecutorFactory},
     state::DebugExecutor,
     trace::{ExecutionTrace, TraceHandler},
     trace_event::TraceEvent,

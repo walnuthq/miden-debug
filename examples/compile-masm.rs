@@ -29,11 +29,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Build a package from the program
     let package = Package {
-        name: input_path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("program")
-            .to_string(),
+        name: input_path.file_stem().and_then(|s| s.to_str()).unwrap_or("program").to_string(),
         version: None,
         description: None,
         kind: PackageKind::Executable,

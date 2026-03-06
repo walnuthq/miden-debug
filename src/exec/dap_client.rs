@@ -41,8 +41,11 @@ pub struct DapClient {
 impl DapClient {
     /// Connect to a DAP server at the given address (e.g. "127.0.0.1:4711").
     pub fn connect(addr: &str) -> Result<Self, String> {
-        let stream = TcpStream::connect(addr).map_err(|e| format!("failed to connect to DAP server at {addr}: {e}"))?;
-        let reader = BufReader::new(stream.try_clone().map_err(|e| format!("failed to clone TCP stream: {e}"))?);
+        let stream = TcpStream::connect(addr)
+            .map_err(|e| format!("failed to connect to DAP server at {addr}: {e}"))?;
+        let reader = BufReader::new(
+            stream.try_clone().map_err(|e| format!("failed to clone TCP stream: {e}"))?,
+        );
         let writer = BufWriter::new(stream);
         Ok(Self {
             reader,
@@ -55,12 +58,15 @@ impl DapClient {
     /// Waits for the initial Stopped(entry) event.
     pub fn handshake(&mut self) -> Result<(), String> {
         // Initialize
-        self.send_request("initialize", serde_json::json!({
-            "adapterID": "miden-debug-tui",
-            "clientName": "miden-debug TUI",
-            "linesStartAt1": true,
-            "columnsStartAt1": true,
-        }))?;
+        self.send_request(
+            "initialize",
+            serde_json::json!({
+                "adapterID": "miden-debug-tui",
+                "clientName": "miden-debug TUI",
+                "linesStartAt1": true,
+                "columnsStartAt1": true,
+            }),
+        )?;
         self.wait_for_response("initialize")?;
 
         // Launch
@@ -84,7 +90,7 @@ impl DapClient {
     }
 
     /// Send a Next (step over) command and wait for a Stopped/Terminated event.
-    pub fn next(&mut self) -> Result<DapStopReason, String> {
+    pub fn step_over(&mut self) -> Result<DapStopReason, String> {
         self.send_request("next", serde_json::json!({"threadId": 1}))?;
         self.wait_for_response("next")?;
         self.wait_for_stopped()
@@ -116,9 +122,12 @@ impl DapClient {
 
     /// Query variables for a given scope reference.
     pub fn variables(&mut self, variables_reference: i64) -> Result<Vec<types::Variable>, String> {
-        self.send_request("variables", serde_json::json!({
-            "variablesReference": variables_reference
-        }))?;
+        self.send_request(
+            "variables",
+            serde_json::json!({
+                "variablesReference": variables_reference
+            }),
+        )?;
         let resp = self.wait_for_response("variables")?;
         match resp.body {
             Some(ResponseBody::Variables(v)) => Ok(v.variables),
@@ -128,9 +137,12 @@ impl DapClient {
 
     /// Evaluate a custom expression (e.g. "__miden_state").
     pub fn evaluate(&mut self, expression: &str) -> Result<String, String> {
-        self.send_request("evaluate", serde_json::json!({
-            "expression": expression
-        }))?;
+        self.send_request(
+            "evaluate",
+            serde_json::json!({
+                "expression": expression
+            }),
+        )?;
         let resp = self.wait_for_response("evaluate")?;
         match resp.body {
             Some(ResponseBody::Evaluate(e)) => Ok(e.result),
@@ -140,13 +152,15 @@ impl DapClient {
 
     /// Set breakpoints for a source file.
     pub fn set_breakpoints(&mut self, path: &str, lines: &[i64]) -> Result<(), String> {
-        let breakpoints: Vec<serde_json::Value> = lines.iter()
-            .map(|&line| serde_json::json!({"line": line}))
-            .collect();
-        self.send_request("setBreakpoints", serde_json::json!({
-            "source": {"path": path},
-            "breakpoints": breakpoints,
-        }))?;
+        let breakpoints: Vec<serde_json::Value> =
+            lines.iter().map(|&line| serde_json::json!({"line": line})).collect();
+        self.send_request(
+            "setBreakpoints",
+            serde_json::json!({
+                "source": {"path": path},
+                "breakpoints": breakpoints,
+            }),
+        )?;
         self.wait_for_response("setBreakpoints")?;
         Ok(())
     }
@@ -195,7 +209,9 @@ impl DapClient {
                 continue;
             }
             if let Some(val) = trimmed.strip_prefix("Content-Length:") {
-                content_length = val.trim().parse::<usize>()
+                content_length = val
+                    .trim()
+                    .parse::<usize>()
                     .map_err(|e| format!("invalid Content-Length: {e}"))?;
             }
         }
@@ -211,8 +227,8 @@ impl DapClient {
 
         // The server wraps everything in a BaseMessage: { seq, type, ... }
         // We parse the "type" field to determine if it's a response or event.
-        let raw: serde_json::Value = serde_json::from_str(content)
-            .map_err(|e| format!("JSON parse error: {e}"))?;
+        let raw: serde_json::Value =
+            serde_json::from_str(content).map_err(|e| format!("JSON parse error: {e}"))?;
 
         match raw.get("type").and_then(|t| t.as_str()) {
             Some("response") => {
@@ -221,8 +237,8 @@ impl DapClient {
                 Ok(DapMessage::Response(resp))
             }
             Some("event") => {
-                let event: Event = serde_json::from_value(raw)
-                    .map_err(|e| format!("event parse error: {e}"))?;
+                let event: Event =
+                    serde_json::from_value(raw).map_err(|e| format!("event parse error: {e}"))?;
                 Ok(DapMessage::Event(event))
             }
             other => Err(format!("unexpected message type: {other:?}")),
@@ -235,7 +251,9 @@ impl DapClient {
             match self.read_message()? {
                 DapMessage::Response(resp) => {
                     if !resp.success {
-                        let msg = resp.message.as_ref()
+                        let msg = resp
+                            .message
+                            .as_ref()
                             .map(|m| format!("{m:?}"))
                             .unwrap_or_else(|| "unknown error".into());
                         return Err(format!("DAP error: {msg}"));

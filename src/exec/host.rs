@@ -1,4 +1,8 @@
-use std::{collections::{BTreeMap, VecDeque}, num::NonZeroU32, sync::Arc};
+use std::{
+    collections::{BTreeMap, VecDeque},
+    num::NonZeroU32,
+    sync::Arc,
+};
 
 use miden_assembly::SourceManager;
 use miden_core::Word;

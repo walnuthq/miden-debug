@@ -469,8 +469,7 @@ impl Home {
     ) -> Result<(), Report> {
         use crate::exec::DapStopReason;
 
-        let client = state.dap_client.as_mut()
-            .ok_or_else(|| Report::msg("no DAP client"))?;
+        let client = state.dap_client.as_mut().ok_or_else(|| Report::msg("no DAP client"))?;
 
         // Determine what DAP command to send based on breakpoints
         let has_step = state.breakpoints.iter().any(|bp| matches!(bp.ty, BreakpointType::Step));
@@ -480,7 +479,7 @@ impl Home {
         let result = if has_step {
             client.step_in()
         } else if has_next {
-            client.next()
+            client.step_over()
         } else if has_finish {
             client.step_out()
         } else {
@@ -492,17 +491,15 @@ impl Home {
 
         match result {
             Ok(DapStopReason::Stopped) => {
-                state.refresh_from_dap().map_err(|e| {
-                    Report::msg(format!("failed to refresh state from DAP: {e}"))
-                })?;
+                state
+                    .refresh_from_dap()
+                    .map_err(|e| Report::msg(format!("failed to refresh state from DAP: {e}")))?;
                 state.stopped = true;
             }
             Ok(DapStopReason::Terminated) => {
                 state.executor.stopped = true;
                 state.stopped = true;
-                actions.push(Some(Action::StatusLine(
-                    "program terminated successfully".into(),
-                )));
+                actions.push(Some(Action::StatusLine("program terminated successfully".into())));
             }
             Err(e) => {
                 state.executor.stopped = true;

@@ -2,20 +2,18 @@ use std::sync::Arc;
 use std::vec::Vec;
 
 use miden_core::Word;
-use miden_core::field::PrimeField64;
 use miden_core::operations::DebugOptions;
+use miden_core::program::Program;
 use miden_processor::{
-    ExecutionError, ExecutionOptions, FastProcessor, Felt, FutureMaybeSend, Host,
-    ProgramExecutor, ProgramExecutorFactory, ProcessorState, StackInputs, TraceError,
+    ExecutionError, ExecutionOptions, ExecutionOutput, FastProcessor, Felt, FutureMaybeSend, Host,
+    ProcessorState, StackInputs, TraceError,
     advice::{AdviceInputs, AdviceMutation},
     event::EventError,
-    fast::ExecutionOutput,
     mast::MastForest,
     trace::RowIndex,
 };
-use miden_core::program::Program;
 
-use super::TraceEvent;
+use super::{ProgramExecutor, ProgramExecutorFactory, TraceEvent};
 
 // DIAGNOSTIC HOST WRAPPER
 // ================================================================================================
@@ -53,12 +51,8 @@ impl<'a, H: Host> DiagnosticHostWrapper<'a, H> {
         eprintln!("Call depth at failure: {}", self.call_depth);
 
         if !self.last_stack_state.is_empty() {
-            let stack_display: Vec<_> = self
-                .last_stack_state
-                .iter()
-                .take(16)
-                .map(|f| f.as_canonical_u64())
-                .collect();
+            let stack_display: Vec<_> =
+                self.last_stack_state.iter().take(16).map(|f| f.as_canonical_u64()).collect();
             eprintln!("Last known stack state (top 16): {stack_display:?}");
         }
 
@@ -75,10 +69,7 @@ impl<H: Host> Host for DiagnosticHostWrapper<'_, H> {
     fn get_label_and_source_file(
         &self,
         location: &miden_debug_types::Location,
-    ) -> (
-        miden_debug_types::SourceSpan,
-        Option<Arc<miden_debug_types::SourceFile>>,
-    ) {
+    ) -> (miden_debug_types::SourceSpan, Option<Arc<miden_debug_types::SourceFile>>) {
         self.inner.get_label_and_source_file(location)
     }
 

@@ -2,10 +2,13 @@ use std::{collections::VecDeque, sync::Arc};
 
 use miden_assembly::{DefaultSourceManager, SourceManager};
 use miden_assembly_syntax::diagnostics::{IntoDiagnostic, Report};
-use miden_core::field::{PrimeCharacteristicRing, PrimeField64};
 use miden_core::program::Program;
 use miden_core::serde::Deserializable;
-use miden_processor::{Felt, StackInputs, advice::{AdviceInputs, AdviceMutation}, mast::MastForest};
+use miden_processor::{
+    Felt, StackInputs,
+    advice::{AdviceInputs, AdviceMutation},
+    mast::MastForest,
+};
 
 use crate::{
     config::DebuggerConfig,
@@ -24,6 +27,30 @@ pub enum DebugMode {
     /// Debugging remotely via a DAP server connection.
     #[cfg(feature = "dap")]
     RemoteDap,
+}
+
+fn clone_advice_mutation(mutation: &AdviceMutation) -> AdviceMutation {
+    match mutation {
+        AdviceMutation::ExtendStack { values } => AdviceMutation::ExtendStack {
+            values: values.clone(),
+        },
+        AdviceMutation::ExtendMap { other } => AdviceMutation::ExtendMap {
+            other: other.clone(),
+        },
+        AdviceMutation::ExtendMerkleStore { infos } => AdviceMutation::ExtendMerkleStore {
+            infos: infos.clone(),
+        },
+        AdviceMutation::ExtendPrecompileRequests { data } => {
+            AdviceMutation::ExtendPrecompileRequests { data: data.clone() }
+        }
+    }
+}
+
+fn clone_event_replay_queue(event_replay: &[Vec<AdviceMutation>]) -> VecDeque<Vec<AdviceMutation>> {
+    event_replay
+        .iter()
+        .map(|batch| batch.iter().map(clone_advice_mutation).collect())
+        .collect()
 }
 
 pub struct State {
@@ -143,7 +170,7 @@ impl State {
             &program,
             source_manager.clone(),
             mast_forests.clone(),
-            VecDeque::from(event_replay.clone()),
+            clone_event_replay_queue(&event_replay),
         );
 
         // Create trace executor with a cloned replay queue
@@ -153,7 +180,7 @@ impl State {
             &program,
             source_manager.clone(),
             mast_forests,
-            VecDeque::from(event_replay),
+            clone_event_replay_queue(&event_replay),
         );
 
         // Run trace executor to completion to capture execution trace
@@ -418,33 +445,34 @@ impl State {
 
         let source_manager: Arc<dyn SourceManager> = Arc::new(DefaultSourceManager::default());
 
-        let mut client = crate::exec::DapClient::connect(addr)
-            .map_err(|e| Report::msg(e))?;
-        client.handshake().map_err(|e| Report::msg(e))?;
+        let mut client = crate::exec::DapClient::connect(addr).map_err(Report::msg)?;
+        client.handshake().map_err(Report::msg)?;
 
         // Query initial state from DAP server
-        let stack_frames = client.stack_trace().map_err(|e| Report::msg(e))?;
-        let stack_vars = client.variables(SCOPE_STACK).map_err(|e| Report::msg(e))?;
+        let stack_frames = client.stack_trace().map_err(Report::msg)?;
+        let stack_vars = client.variables(SCOPE_STACK).map_err(Report::msg)?;
 
         // Build call frames from DAP StackTrace response
-        let call_frames: Vec<CallFrame> = stack_frames.iter().map(|f| {
-            let resolved = resolve_dap_frame(f, &source_manager);
-            CallFrame::from_remote(Some(f.name.clone()), resolved)
-        }).collect();
+        let call_frames: Vec<CallFrame> = stack_frames
+            .iter()
+            .map(|f| {
+                let resolved = resolve_dap_frame(f, &source_manager);
+                CallFrame::from_remote(Some(f.name.clone()), resolved)
+            })
+            .collect();
 
         // Build current_stack from Variables response
-        let current_stack: Vec<Felt> = stack_vars.iter()
+        let current_stack: Vec<Felt> = stack_vars
+            .iter()
             .map(|v| Felt::new(v.value.parse::<u64>().unwrap_or(0)))
             .collect();
 
         // Query cycle from Evaluate
         let mut cycle = 0usize;
-        if let Ok(state_json) = client.evaluate("__miden_state") {
-            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&state_json) {
-                cycle = parsed.get("cycle")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0) as usize;
-            }
+        if let Ok(state_json) = client.evaluate("__miden_state")
+            && let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&state_json)
+        {
+            cycle = parsed.get("cycle").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
         }
 
         // Build a dummy DebugExecutor — the processor/host are defaults and never stepped.
@@ -492,30 +520,30 @@ impl State {
         use crate::debug::{CallFrame, CallStack};
         use crate::exec::SCOPE_STACK;
 
-        let client = self.dap_client.as_mut()
-            .ok_or_else(|| Report::msg("no DAP client"))?;
+        let client = self.dap_client.as_mut().ok_or_else(|| Report::msg("no DAP client"))?;
 
         // Update stack
-        let vars = client.variables(SCOPE_STACK).map_err(|e| Report::msg(e))?;
-        self.executor.current_stack = vars.iter()
-            .map(|v| Felt::new(v.value.parse::<u64>().unwrap_or(0)))
-            .collect();
+        let vars = client.variables(SCOPE_STACK).map_err(Report::msg)?;
+        self.executor.current_stack =
+            vars.iter().map(|v| Felt::new(v.value.parse::<u64>().unwrap_or(0))).collect();
 
         // Update call stack from StackTrace response
-        let frames = client.stack_trace().map_err(|e| Report::msg(e))?;
-        let call_frames: Vec<CallFrame> = frames.iter().map(|f| {
-            let resolved = resolve_dap_frame(f, &self.source_manager);
-            CallFrame::from_remote(Some(f.name.clone()), resolved)
-        }).collect();
+        let frames = client.stack_trace().map_err(Report::msg)?;
+        let call_frames: Vec<CallFrame> = frames
+            .iter()
+            .map(|f| {
+                let resolved = resolve_dap_frame(f, &self.source_manager);
+                CallFrame::from_remote(Some(f.name.clone()), resolved)
+            })
+            .collect();
         self.executor.callstack = CallStack::from_remote_frames(call_frames);
 
         // Update cycle from Evaluate
-        if let Ok(state_json) = client.evaluate("__miden_state") {
-            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&state_json) {
-                if let Some(c) = parsed.get("cycle").and_then(|v| v.as_u64()) {
-                    self.executor.cycle = c as usize;
-                }
-            }
+        if let Ok(state_json) = client.evaluate("__miden_state")
+            && let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&state_json)
+            && let Some(c) = parsed.get("cycle").and_then(|v| v.as_u64())
+        {
+            self.executor.cycle = c as usize;
         }
 
         Ok(())

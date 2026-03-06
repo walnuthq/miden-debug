@@ -1,5 +1,4 @@
 use miden_assembly_syntax::diagnostics::Report;
-use miden_core::field::PrimeField64;
 use ratatui::{
     prelude::*,
     widgets::{block::*, *},
