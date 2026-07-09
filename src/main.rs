@@ -98,15 +98,18 @@ fn run_debugger(
         config.working_dir = Some(cwd);
     }
 
-    if let Some(snapshot_path) = config.trace.clone() {
-        // Headless: print the function trace of the recorded snapshot and exit.
+    if let Some(snapshot_ref) = config.trace.clone() {
+        // Headless: print the function trace of the recorded snapshot and exit. The argument is
+        // a snapshot file path or a (prefix of a) transaction ID of a recorded transaction.
         log::set_boxed_logger(_logger).ok();
         log::set_max_level(_log_level);
+        let snapshot_path = miden_debug::snapshots::resolve_snapshot_ref(&snapshot_ref)?;
         return miden_debug::trace::run(&snapshot_path);
     }
 
     #[cfg(feature = "tui")]
-    if let Some(snapshot_path) = config.replay.clone() {
+    if let Some(snapshot_ref) = config.replay.clone() {
+        let snapshot_path = miden_debug::snapshots::resolve_snapshot_ref(&snapshot_ref)?;
         return run_replay_and_log_level(&snapshot_path, _logger, _log_level);
     }
 

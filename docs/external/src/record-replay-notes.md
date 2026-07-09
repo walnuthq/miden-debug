@@ -80,20 +80,32 @@ Wrote replay snapshot to .../p2id.mdsnap; replay it with `miden-debug --replay .
 
 `--record` also works **without** `--start-debug-adapter`: the transaction executes
 headlessly while recording — nothing to attach, no stepping — and the snapshot is written
-in a single command:
+in a single command. Given without a file, the snapshot is stored keyed by the executed
+transaction's ID (under `$MIDEN_DEBUG_SNAPSHOTS` or `~/.miden/debug-snapshots`):
 
 ```bash
-HOME="$STORE" miden-client consume-notes -a "$WALLET" <NOTE_ID> \
-  --record "$STORE/p2id.mdsnap"
+HOME="$STORE" miden-client consume-notes -a "$WALLET" <NOTE_ID> --record
 ```
 
-Like the debug session, this does not prove, submit, or apply the transaction.
+```text
+Recorded transaction 0x6f63a2e5e18b705c38b1b75845c65a287e607f5d2a9217f3c0e7da1104fb36f0.
+Trace it with `miden-debug --trace 0x6f63a2e5...` or replay it with `miden-debug --replay 0x6f63a2e5...`.
+```
+
+Pass `--record <FILE>` (or `--record=<FILE>`) to write to an explicit path instead. Like
+the debug session, neither form proves, submits, or applies the transaction.
 
 ## Replay offline
 
 ```bash
-miden-debug --replay "$STORE/p2id.mdsnap"
+miden-debug --replay <TX_ID>            # a recorded transaction (unique prefixes work)
+miden-debug --replay path/to/tx.mdsnap  # or an explicit snapshot file
 ```
+
+Transaction IDs are resolved against `$MIDEN_DEBUG_SNAPSHOTS`, `./.miden/debug-snapshots`,
+and `~/.miden/debug-snapshots`. Only locally recorded transactions can be resolved this
+way — the chain does not carry the execution inputs a snapshot captures, so an arbitrary
+on-chain transaction ID is not traceable.
 
 The recorded events are fed back through the debugger's event-replay host, so you step
 through the identical execution — no network or wallet required. The snapshot carries no
@@ -105,7 +117,7 @@ source files, so the debugger shows disassembly.
 executes, in order, followed by a per-function cycle summary:
 
 ```bash
-miden-debug --trace "$STORE/p2id.mdsnap"
+miden-debug --trace <TX_ID>             # or an explicit snapshot file path
 ```
 
 ```text

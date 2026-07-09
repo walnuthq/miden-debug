@@ -122,24 +122,28 @@ pub struct DebuggerConfig {
     pub source_path_prefixes: Vec<PathBuf>,
     /// Replay a recorded execution snapshot in the TUI debugger.
     ///
-    /// FILE is a snapshot written during a recorded debug session (e.g.
-    /// `miden-client exec --start-debug-adapter <ADDR> --record <FILE>`). The recorded program,
-    /// inputs, resolved code, and event log are replayed so the same execution can be stepped
-    /// through offline, without the original host.
+    /// FILE_OR_TX_ID is a snapshot file written during a recorded run (e.g.
+    /// `miden-client ... --record`), or the transaction ID (or a unique prefix of it) of a
+    /// recorded transaction, resolved against $MIDEN_DEBUG_SNAPSHOTS, ./.miden/debug-snapshots,
+    /// and ~/.miden/debug-snapshots. The recorded program, inputs, resolved code, and event log
+    /// are replayed so the same execution can be stepped through offline, without the original
+    /// host.
     #[cfg_attr(
         feature = "tui",
-        arg(long, value_name = "FILE", help_heading = "Execution")
+        arg(long, value_name = "FILE_OR_TX_ID", help_heading = "Execution")
     )]
     pub replay: Option<PathBuf>,
     /// Print the function trace of a recorded execution snapshot, then exit.
     ///
-    /// FILE is a snapshot written during a recorded debug session (e.g.
-    /// `miden-client consume-notes --record <FILE>`). The recorded execution is re-run
+    /// FILE_OR_TX_ID is a snapshot file written during a recorded run (e.g.
+    /// `miden-client consume-notes --record`), or the transaction ID (or a unique prefix of it)
+    /// of a recorded transaction, resolved against $MIDEN_DEBUG_SNAPSHOTS,
+    /// ./.miden/debug-snapshots, and ~/.miden/debug-snapshots. The recorded execution is re-run
     /// headlessly and every function it executes is printed in order, followed by a
     /// per-function cycle summary.
     #[cfg_attr(
         any(feature = "tui", feature = "repl", feature = "flamegraph"),
-        arg(long, value_name = "FILE", help_heading = "Execution")
+        arg(long, value_name = "FILE_OR_TX_ID", help_heading = "Execution")
     )]
     pub trace: Option<PathBuf>,
     /// Specify one or more search paths for link libraries requested via `-l`
