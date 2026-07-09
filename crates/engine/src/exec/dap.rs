@@ -1979,6 +1979,138 @@ fn write_replay_snapshot(context: ReplaySnapshotWriteContext<'_>) {
     }
 }
 
+// RECORDING EXECUTOR
+// ================================================================================================
+
+/// A program executor that runs to completion headlessly while recording a replay snapshot.
+///
+/// Unlike [DapExecutor], it does not start a DAP server or wait for a debugger to attach: the
+/// program executes exactly as it would under the normal executor, while the advice mutations
+/// produced by the host's event handlers and the MAST forests the host resolves are captured.
+/// When the installed [DapConfig] carries a snapshot path (see [DapConfig::record_snapshot]),
+/// a [ReplaySnapshot] of the run is written once execution ends — on success or failure — ready
+/// for `miden-debug --replay` / `--trace`.
+///
+/// This is what backs one-shot recording flows such as
+/// `miden-client consume-notes --record <FILE>` (without `--start-debug-adapter`).
+pub struct RecordingExecutor {
+    stack_inputs: StackInputs,
+    advice_inputs: AdviceInputs,
+    options: ExecutionOptions,
+    config: DapConfig,
+    event_recorder: Option<EventMutationRecorder>,
+    forest_recorder: Option<MastForestRecorder>,
+}
+
+impl RecordingExecutor {
+    pub fn new(
+        stack_inputs: StackInputs,
+        advice_inputs: AdviceInputs,
+        options: ExecutionOptions,
+    ) -> Self {
+        let config = DAP_CONFIG.get().cloned().unwrap_or_default();
+        Self::from_config(stack_inputs, advice_inputs, options, config)
+    }
+
+    fn from_config(
+        stack_inputs: StackInputs,
+        advice_inputs: AdviceInputs,
+        options: ExecutionOptions,
+        config: DapConfig,
+    ) -> Self {
+        // Writing a snapshot requires both the event log and the resolved forests. Ensure an
+        // event recorder exists (reusing the config's shared one if present) and turn on forest
+        // recording whenever a snapshot path is configured.
+        let (event_recorder, forest_recorder) = if config.snapshot_path.is_some() {
+            (
+                Some(config.event_recorder.clone().unwrap_or_default()),
+                Some(MastForestRecorder::new()),
+            )
+        } else {
+            (config.event_recorder.clone(), None)
+        };
+        RecordingExecutor {
+            stack_inputs,
+            advice_inputs,
+            options,
+            config,
+            event_recorder,
+            forest_recorder,
+        }
+    }
+
+    /// Record the advice mutations produced by each event handler invocation of the wrapped
+    /// host during execution. See [DapExecutor::record_event_mutations]; the same shared-handle
+    /// semantics apply.
+    pub fn record_event_mutations(&mut self) -> EventMutationRecorder {
+        self.event_recorder.get_or_insert_with(EventMutationRecorder::new).clone()
+    }
+
+    pub fn execute_async<H: Host + Send>(
+        self,
+        program: &Program,
+        host: &mut H,
+    ) -> impl FutureMaybeSend<Result<ExecutionOutput, ExecutionError>> {
+        async move { self.run(program, host) }
+    }
+
+    fn run<H: Host>(
+        self,
+        program: &Program,
+        host: &mut H,
+    ) -> Result<ExecutionOutput, ExecutionError> {
+        let stack_inputs = self.stack_inputs;
+        let advice_inputs = self.advice_inputs;
+        let options = self.options;
+
+        let mut processor =
+            FastProcessor::new_with_options(stack_inputs, advice_inputs.clone(), options)
+                .expect("advice inputs should fit advice map limits");
+        let mut wrapper =
+            DapHostWrapper::new(host, self.event_recorder.clone(), self.forest_recorder.clone());
+
+        let mut resume_ctx = Some(processor.get_initial_resume_context(program)?);
+        let result = loop {
+            let Some(ctx) = resume_ctx.take() else {
+                break Ok(());
+            };
+            match poll_immediately(processor.step(&mut wrapper, ctx)) {
+                Ok(Some(next)) => resume_ctx = Some(next),
+                Ok(None) => break Ok(()),
+                Err(e) => break Err(e),
+            }
+        };
+
+        // Persist the snapshot on every terminal outcome: a failing run is captured up to the
+        // failure point so it can still be replayed.
+        if let Some(path) = self.config.snapshot_path.as_ref() {
+            write_replay_snapshot(ReplaySnapshotWriteContext {
+                path,
+                snapshot_recorder: self.config.snapshot_recorder.as_ref(),
+                event_recorder: self.event_recorder.as_ref(),
+                forest_recorder: self.forest_recorder.as_ref(),
+                program,
+                stack_inputs,
+                advice_inputs: &advice_inputs,
+                options,
+            });
+        }
+
+        result?;
+
+        let stack_top: Vec<_> = processor.stack_top().iter().rev().copied().collect();
+        let stack = StackOutputs::new(&stack_top)
+            .unwrap_or_else(|_| StackOutputs::new(&[]).expect("empty stack outputs"));
+        let (advice, memory, final_precompile_transcript) = processor.into_parts();
+        Ok(ExecutionOutput {
+            stack,
+            advice,
+            memory,
+            final_precompile_transcript,
+        })
+    }
+}
+
 // STEPPING HELPERS
 // ================================================================================================
 
@@ -2434,6 +2566,57 @@ mod tests {
             _ => panic!("unexpected mutations recorded"),
         }
         assert!(recorder.is_empty(), "take() should leave the recorder empty");
+    }
+
+    /// The headless [RecordingExecutor] runs a program to completion without a DAP session,
+    /// records the event mutations its host produces, and writes a replay snapshot.
+    #[test]
+    fn recording_executor_records_and_writes_a_snapshot() {
+        use crate::exec::ReplaySnapshot;
+
+        let source_manager = Arc::new(DefaultSourceManager::default());
+        let event_name = "miden-debug::test::headless-record";
+        let event_id = EventId::from_name(event_name).as_u64();
+        let program = miden_assembly::Assembler::new(source_manager.clone())
+            .assemble_program(format!("begin push.{event_id} emit drop adv_push drop end"))
+            .expect("failed to assemble test program");
+
+        let mut host = DebuggerHost::new(source_manager);
+        host.register_event_handler(
+            EventName::from_string(event_name.to_string()),
+            Arc::new(PushSeven),
+        )
+        .expect("failed to register event handler");
+
+        let snapshot_path = std::env::temp_dir()
+            .join(format!("miden-recording-executor-{}.mdsnap", std::process::id()));
+        let _ = std::fs::remove_file(&snapshot_path);
+
+        let mut config = DapConfig::new("127.0.0.1:0");
+        let recorder = config.record_event_mutations();
+        config.record_snapshot(&snapshot_path);
+
+        let executor = RecordingExecutor::from_config(
+            StackInputs::new(&[]).unwrap(),
+            AdviceInputs::default(),
+            ExecutionOptions::default(),
+            config,
+        );
+        executor.run(&program, &mut host).expect("headless execution failed");
+
+        assert_eq!(recorder.len(), 1, "expected one recorded entry for the emitted event");
+
+        let snapshot = ReplaySnapshot::read_from_file(&snapshot_path)
+            .expect("snapshot was not written or failed to deserialize");
+        assert_eq!(snapshot.event_log.len(), 1);
+        match snapshot.event_log[0].as_slice() {
+            [AdviceMutation::ExtendStack { values }] => {
+                assert_eq!(values.as_slice(), &[Felt::from(7u32)]);
+            }
+            _ => panic!("unexpected mutations in the recorded snapshot"),
+        }
+
+        let _ = std::fs::remove_file(&snapshot_path);
     }
 
     /// The executor is constructed internally (e.g. by a transaction executor) and consumed by

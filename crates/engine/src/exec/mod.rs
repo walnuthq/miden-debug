@@ -17,7 +17,7 @@ mod trace_event;
 mod trace_monitor;
 
 #[cfg(feature = "dap")]
-pub use self::dap::{DapConfig, DapExecutor};
+pub use self::dap::{DapConfig, DapExecutor, RecordingExecutor};
 #[cfg(feature = "dap")]
 pub use self::dap_client::{DapClient, DapStopReason, SCOPE_MEMORY, SCOPE_STACK};
 #[cfg(feature = "dap")]
