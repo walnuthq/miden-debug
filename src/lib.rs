@@ -9,6 +9,7 @@ mod input;
 mod linker;
 mod package_registry;
 mod program_loader;
+pub mod trace;
 
 #[cfg(any(feature = "tui", feature = "repl"))]
 pub mod logger;

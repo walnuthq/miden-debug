@@ -131,6 +131,17 @@ pub struct DebuggerConfig {
         arg(long, value_name = "FILE", help_heading = "Execution")
     )]
     pub replay: Option<PathBuf>,
+    /// Print the function trace of a recorded execution snapshot, then exit.
+    ///
+    /// FILE is a snapshot written during a recorded debug session (e.g.
+    /// `miden-client consume-notes --record <FILE>`). The recorded execution is re-run
+    /// headlessly and every function it executes is printed in order, followed by a
+    /// per-function cycle summary.
+    #[cfg_attr(
+        any(feature = "tui", feature = "repl", feature = "flamegraph"),
+        arg(long, value_name = "FILE", help_heading = "Execution")
+    )]
+    pub trace: Option<PathBuf>,
     /// Specify one or more search paths for link libraries requested via `-l`
     #[cfg_attr(
         any(feature = "tui", feature = "flamegraph"),

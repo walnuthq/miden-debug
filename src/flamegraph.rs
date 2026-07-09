@@ -212,6 +212,7 @@ impl FlamegraphArgs {
             repl: false,
             commands: None,
             replay: None,
+            trace: None,
             #[cfg(feature = "python")]
             no_user_python_init: true,
         }

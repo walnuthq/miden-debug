@@ -98,6 +98,13 @@ fn run_debugger(
         config.working_dir = Some(cwd);
     }
 
+    if let Some(snapshot_path) = config.trace.clone() {
+        // Headless: print the function trace of the recorded snapshot and exit.
+        log::set_boxed_logger(_logger).ok();
+        log::set_max_level(_log_level);
+        return miden_debug::trace::run(&snapshot_path);
+    }
+
     #[cfg(feature = "tui")]
     if let Some(snapshot_path) = config.replay.clone() {
         return run_replay_and_log_level(&snapshot_path, _logger, _log_level);
