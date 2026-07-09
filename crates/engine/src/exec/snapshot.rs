@@ -109,8 +109,11 @@ impl ReplaySnapshotRecorder {
 
 /// Magic bytes identifying a replay snapshot file, followed by a format version. Bumping the
 /// version invalidates older snapshots, whose serialized shape may differ.
+///
+/// Version history: v1 had no execution options; v2 serializes [ExecutionOptions] between the
+/// advice inputs and the MAST forests.
 const SNAPSHOT_MAGIC: [u8; 6] = *b"MDNSNP";
-const SNAPSHOT_VERSION: u8 = 1;
+const SNAPSHOT_VERSION: u8 = 2;
 
 /// Everything needed to replay a recorded execution in the debugger.
 pub struct ReplaySnapshot {
