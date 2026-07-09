@@ -76,6 +76,19 @@ Recorded 542 advice mutation set(s) from event handlers during the debug session
 Wrote replay snapshot to .../p2id.mdsnap; replay it with `miden-debug --replay .../p2id.mdsnap`.
 ```
 
+## Recording without a debugger
+
+`--record` also works **without** `--start-debug-adapter`: the transaction executes
+headlessly while recording — nothing to attach, no stepping — and the snapshot is written
+in a single command:
+
+```bash
+HOME="$STORE" miden-client consume-notes -a "$WALLET" <NOTE_ID> \
+  --record "$STORE/p2id.mdsnap"
+```
+
+Like the debug session, this does not prove, submit, or apply the transaction.
+
 ## Replay offline
 
 ```bash
@@ -86,9 +99,39 @@ The recorded events are fed back through the debugger's event-replay host, so yo
 through the identical execution — no network or wallet required. The snapshot carries no
 source files, so the debugger shows disassembly.
 
+## Print a function trace
+
+`--trace` re-executes a snapshot headlessly and prints every function the transaction
+executes, in order, followed by a per-function cycle summary:
+
+```bash
+miden-debug --trace "$STORE/p2id.mdsnap"
+```
+
+```text
+Function trace: 6000 transition(s), 272 unique function(s), 79131 cycle(s)
+
+     cycle  function
+         0  ::$exec::$main
+        11  ::$kernel::prologue::prepare_transaction
+       ...
+      3948  ::$kernel::note::prepare_note
+      3976  ::miden::standards::notes::p2id::main
+       ...
+
+Functions by self-cycles:
+    cycles  entries  function
+     19582      512  ::miden::core::crypto::dsa::falcon512_poseidon2::mod_12289
+       ...
+```
+
+Function names come from the debug info embedded in the executed code; segments without
+debug info are attributed to `<unknown>`. If the recorded run failed, the trace up to the
+failure point is printed before the error.
+
 ## Replaying a failed transaction
 
 A snapshot is written even when the debugged transaction **fails** mid-execution (for
 example, a note-script assertion). This captures the run up to the failure point, so you
-can replay a failing consume offline and step right up to where it went wrong — often the
-most useful case to debug.
+can replay a failing consume offline — or `--trace` it — and step right up to where it
+went wrong — often the most useful case to debug.
